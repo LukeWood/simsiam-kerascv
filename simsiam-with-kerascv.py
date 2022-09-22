@@ -76,14 +76,11 @@ STL-10 is commonly used as a benchmark for contrastive learning models.
 
 First lets load our unlabelled data
 """
-unlabelled_images = tfds.load("stl10", split="unlabelled")
-unlabelled_images = unlabelled_images.map(
+train_ds = tfds.load("stl10", split="unlabelled")
+train_ds = train_ds.map(
     lambda entry: entry["image"], num_parallel_calls=tf.data.AUTOTUNE
 )
-unlabelled_images = unlabelled_images.shuffle(
-    buffer_size=8 * BATCH_SIZE, reshuffle_each_iteration=True
-)
-unlabelled_images = unlabelled_images.batch(BATCH_SIZE)
+train_ds = train_ds.shuffle(buffer_size=8 * BATCH_SIZE, reshuffle_each_iteration=True)
 
 """
 Next, we need to prepare some labelled samples.
@@ -210,7 +207,6 @@ def process(img):
     return augmenter(img), augmenter(img)
 
 
-train_ds = tf.data.Dataset.from_tensor_slices(x_train)
 train_ds = train_ds.repeat()
 train_ds = train_ds.shuffle(1024)
 train_ds = train_ds.batch(BATCH_SIZE)
@@ -220,14 +216,18 @@ train_ds = train_ds.prefetch(tf.data.AUTOTUNE)
 val_ds = tf.data.Dataset.from_tensor_slices(x_val)
 val_ds = val_ds.repeat()
 val_ds = val_ds.shuffle(1024)
-train_ds = train_ds.batch(BATCH_SIZE)
+val_ds = val_ds.batch(BATCH_SIZE)
 val_ds = val_ds.map(process, num_parallel_calls=tf.data.AUTOTUNE)
 val_ds = val_ds.prefetch(tf.data.AUTOTUNE)
+
+print("train_ds", train_ds)
+print("val_ds", val_ds)
 
 """
 Lets visualize our pairs using the `tfsim.visualization` utility package.
 """
 display_imgs = next(train_ds.as_numpy_iterator())
+print(display_imgs[0].shape)
 max_pixel = np.max([display_imgs[0].max(), display_imgs[1].max()])
 min_pixel = np.min([display_imgs[0].min(), display_imgs[1].min()])
 
@@ -238,3 +238,4 @@ tfsim.visualization.visualize_views(
     max_pixel_value=max_pixel,
     min_pixel_value=min_pixel,
 )
+
