@@ -43,6 +43,7 @@ import gc
 import os
 import random
 import time
+import keras_cv
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -50,8 +51,10 @@ import numpy as np
 from tabulate import tabulate
 import tensorflow_similarity as tfsim  # main package
 import tensorflow as tf
+from keras_cv import layers as cv_layers
 
 import tensorflow_datasets as tfds
+
 tfsim.utils.tf_cap_memory()  # Avoid GPU memory blow up
 tfds.disable_progress_bar()
 
@@ -78,7 +81,7 @@ unlabelled_images = unlabelled_images.map(
     lambda entry: entry["image"], num_parallel_calls=tf.data.AUTOTUNE
 )
 unlabelled_images = unlabelled_images.shuffle(
-    buffer_size = 8*BATCH_SIZE, reshuffle_each_iteration=True
+    buffer_size=8 * BATCH_SIZE, reshuffle_each_iteration=True
 )
 unlabelled_images = unlabelled_images.batch(BATCH_SIZE)
 
@@ -88,8 +91,15 @@ This is done so that TensorFlow similarity can probe the learned embedding to en
 that the model is learning appropriately.
 """
 
-(x_raw_train, y_raw_train), ds_info = tfds.load("stl10", split="train", as_supervised=True, batch_size=-1, with_info=True)
-x_test, y_test = tfds.load("stl10", split="test", as_supervised=True, batch_size=-1,)
+(x_raw_train, y_raw_train), ds_info = tfds.load(
+    "stl10", split="train", as_supervised=True, batch_size=-1, with_info=True
+)
+x_test, y_test = tfds.load(
+    "stl10",
+    split="test",
+    as_supervised=True,
+    batch_size=-1,
+)
 
 # Compute the indicies for query, index, val, and train splits
 query_idxs, index_idxs, val_idxs, train_idxs = [], [], [], []
@@ -106,6 +116,7 @@ random.shuffle(index_idxs)
 random.shuffle(val_idxs)
 random.shuffle(train_idxs)
 
+
 def create_split(idxs: list) -> tuple:
     x, y = [], []
     for idx in idxs:
@@ -113,10 +124,13 @@ def create_split(idxs: list) -> tuple:
         y.append(y_raw_train[int(idx)])
     return tf.convert_to_tensor(np.array(x)), tf.convert_to_tensor(np.array(y))
 
+
 x_query, y_query = create_split(query_idxs)
 x_index, y_index = create_split(index_idxs)
 x_val, y_val = create_split(val_idxs)
 x_train, y_train = create_split(train_idxs)
+
+PRE_TRAIN_STEPS_PER_EPOCH = len(x_train) // BATCH_SIZE
 
 print(
     tabulate(
@@ -142,7 +156,85 @@ TensorFlow Similarity provides several random augmentation functions, and here w
 """
 
 """
-Now that we have all of our datasets produced, we can move on to constructing the actual
-models.  First, lets define some hyper-parameters that are typical for SimSiam:
+## Augmentation
+
+Now that we have all of our datasets produced, we can move on to dataset augmentation.
+Using KerasCV, it is trivial to construct an augmenter that performs as the one
+described in the original SimSiam paper.  Lets do that below.
 """
-PRE_TRAIN_STEPS_PER_EPOCH = len(x_train) // BATCH_SIZE
+
+target_size = (96, 96)
+crop_area_factor = (0.08, 1)
+aspect_ratio_factor = (3 / 4, 4 / 3)
+grayscale_rate = 0.2
+color_jitter_rate = 0.8
+brightness_factor = 0.2
+contrast_factor = 0.8
+saturation_factor = (0.3, 0.7)
+hue_factor = 0.2
+
+augmenter = keras_cv.layers.Augmenter(
+    [
+        cv_layers.RandomFlip("horizontal"),
+        cv_layers.RandomResizedCrop(
+            target_size,
+            crop_area_factor=crop_area_factor,
+            aspect_ratio_factor=aspect_ratio_factor,
+        ),
+        cv_layers.MaybeApply(
+            cv_layers.Grayscale(output_channels=3), rate=grayscale_rate
+        ),
+        cv_layers.MaybeApply(
+            cv_layers.RandomColorJitter(
+                value_range=(0, 255),
+                brightness_factor=brightness_factor,
+                contrast_factor=contrast_factor,
+                saturation_factor=saturation_factor,
+                hue_factor=hue_factor,
+            ),
+            rate=color_jitter_rate,
+        ),
+    ],
+)
+
+"""
+Next, lets pass our images through this pipeline.
+Note that KerasCV supports batched augmentation, so batching before
+augmentation dramatically improves performance
+
+"""
+
+
+@tf.function()
+def process(img):
+    return augmenter(img), augmenter(img)
+
+
+train_ds = tf.data.Dataset.from_tensor_slices(x_train)
+train_ds = train_ds.repeat()
+train_ds = train_ds.shuffle(1024)
+train_ds = train_ds.batch(BATCH_SIZE)
+train_ds = train_ds.map(process, num_parallel_calls=tf.data.AUTOTUNE)
+train_ds = train_ds.prefetch(tf.data.AUTOTUNE)
+
+val_ds = tf.data.Dataset.from_tensor_slices(x_val)
+val_ds = val_ds.repeat()
+val_ds = val_ds.shuffle(1024)
+train_ds = train_ds.batch(BATCH_SIZE)
+val_ds = val_ds.map(process, num_parallel_calls=tf.data.AUTOTUNE)
+val_ds = val_ds.prefetch(tf.data.AUTOTUNE)
+
+"""
+Lets visualize our pairs using the `tfsim.visualization` utility package.
+"""
+display_imgs = next(train_ds.as_numpy_iterator())
+max_pixel = np.max([display_imgs[0].max(), display_imgs[1].max()])
+min_pixel = np.min([display_imgs[0].min(), display_imgs[1].min()])
+
+tfsim.visualization.visualize_views(
+    views=display_imgs,
+    num_imgs=16,
+    views_per_col=8,
+    max_pixel_value=max_pixel,
+    min_pixel_value=min_pixel,
+)
