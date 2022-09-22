@@ -82,13 +82,6 @@ that the model is learning appropriately.
 train_labelled_images, ds_info = tfds.load("stl10", split="train", as_supervised=True, batch_size=-1,)
 test_labelled_images = tfds.load("stl10", split="test", as_supervised=True, batch_size=-1,)
 
-
-x_raw_train, y_raw_train = [], []
-
-for x, y in tfds.as_numpy(train_labelled_images):
-    x_raw_train.append(x)
-    y_raw_train.append(y)
-
 # Compute the indicies for query, index, val, and train splits
 query_idxs, index_idxs, val_idxs, train_idxs = [], [], [], []
 for cid in range(ds_info.features["label"].num_classes):
@@ -103,3 +96,39 @@ random.shuffle(query_idxs)
 random.shuffle(index_idxs)
 random.shuffle(val_idxs)
 random.shuffle(train_idxs)
+
+def create_split(idxs: list) -> tuple:
+    x, y = [], []
+    for idx in idxs:
+        x.append(x_raw_train[int(idx)])
+        y.append(y_raw_train[int(idx)])
+    return tf.convert_to_tensor(np.array(x)), tf.convert_to_tensor(np.array(y))
+
+x_query, y_query = create_split(query_idxs)
+x_index, y_index = create_split(index_idxs)
+x_val, y_val = create_split(val_idxs)
+x_train, y_train = create_split(train_idxs)
+
+"""
+## Augmentations
+Self-supervised networks require at least two augmented "views" of each example. This can be created using a DataSet and an augmentation function. The DataSet treats each example in the batch as its own class and then the augment function produces two separate views for each example.
+
+This means the resulting batch will yield tuples containing the two views, i.e.,
+Tuple[(BATCH_SIZE, 32, 32, 3), (BATCH_SIZE, 32, 32, 3)].
+
+TensorFlow Similarity provides several random augmentation functions, and here we combine augmenters from the simCLR module to replicate the augmentations used in simsiam.
+"""
+
+"""
+Now that we have all of our datasets produced, we can move on to constructing the actual
+models.  First, lets define some hyper-parameters that are typical for SimSiam:
+"""
+BATCH_SIZE = 512
+PRE_TRAIN_EPOCHS = 800
+PRE_TRAIN_STEPS_PER_EPOCH = len(x_train) // BATCH_SIZE
+VAL_STEPS_PER_EPOCH = 20
+WEIGHT_DECAY = 5e-4
+INIT_LR = 3e-2 * int(BATCH_SIZE / 256)
+WARMUP_LR = 0.0
+WARMUP_STEPS = 0
+DIM = 2048
