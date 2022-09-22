@@ -57,7 +57,6 @@ tfds.disable_progress_bar()
 
 BATCH_SIZE = 512
 PRE_TRAIN_EPOCHS = 800
-PRE_TRAIN_STEPS_PER_EPOCH = len(x_train) // BATCH_SIZE
 VAL_STEPS_PER_EPOCH = 20
 WEIGHT_DECAY = 5e-4
 INIT_LR = 3e-2 * int(BATCH_SIZE / 256)
@@ -89,8 +88,8 @@ This is done so that TensorFlow similarity can probe the learned embedding to en
 that the model is learning appropriately.
 """
 
-train_labelled_images, ds_info = tfds.load("stl10", split="train", as_supervised=True, batch_size=-1,)
-test_labelled_images = tfds.load("stl10", split="test", as_supervised=True, batch_size=-1,)
+(x_raw_train, y_raw_train), ds_info = tfds.load("stl10", split="train", as_supervised=True, batch_size=-1, with_info=True)
+x_test, y_test = tfds.load("stl10", split="test", as_supervised=True, batch_size=-1,)
 
 # Compute the indicies for query, index, val, and train splits
 query_idxs, index_idxs, val_idxs, train_idxs = [], [], [], []
@@ -146,3 +145,4 @@ TensorFlow Similarity provides several random augmentation functions, and here w
 Now that we have all of our datasets produced, we can move on to constructing the actual
 models.  First, lets define some hyper-parameters that are typical for SimSiam:
 """
+PRE_TRAIN_STEPS_PER_EPOCH = len(x_train) // BATCH_SIZE
