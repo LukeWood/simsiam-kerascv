@@ -106,10 +106,10 @@ query_idxs, index_idxs, val_idxs, train_idxs = [], [], [], []
 for cid in range(ds_info.features["label"].num_classes):
     idxs = tf.random.shuffle(tf.where(y_raw_train == cid))
     idxs = tf.reshape(idxs, (-1,))
-    query_idxs.extend(idxs[:200])  # 200 query examples per class
-    index_idxs.extend(idxs[200:400])  # 200 index examples per class
-    val_idxs.extend(idxs[400:500])  # 100 validation examples per class
-    train_idxs.extend(idxs[500:])  # The remaining are used for training
+    query_idxs.extend(idxs[:100])  # 200 query examples per class
+    index_idxs.extend(idxs[100:200])  # 200 index examples per class
+    val_idxs.extend(idxs[200:300])  # 100 validation examples per class
+    train_idxs.extend(idxs[300:])  # The remaining are used for training
 
 random.shuffle(query_idxs)
 random.shuffle(index_idxs)
