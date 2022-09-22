@@ -55,6 +55,16 @@ import tensorflow_datasets as tfds
 tfsim.utils.tf_cap_memory()  # Avoid GPU memory blow up
 tfds.disable_progress_bar()
 
+BATCH_SIZE = 512
+PRE_TRAIN_EPOCHS = 800
+PRE_TRAIN_STEPS_PER_EPOCH = len(x_train) // BATCH_SIZE
+VAL_STEPS_PER_EPOCH = 20
+WEIGHT_DECAY = 5e-4
+INIT_LR = 3e-2 * int(BATCH_SIZE / 256)
+WARMUP_LR = 0.0
+WARMUP_STEPS = 0
+DIM = 2048
+
 """
 ## Data Loading
 
@@ -109,6 +119,19 @@ x_index, y_index = create_split(index_idxs)
 x_val, y_val = create_split(val_idxs)
 x_train, y_train = create_split(train_idxs)
 
+print(
+    tabulate(
+        [
+            ["train", x_train.shape, y_train.shape],
+            ["val", x_val.shape, y_val.shape],
+            ["query", x_query.shape, y_query.shape],
+            ["index", x_index.shape, y_index.shape],
+            ["test", x_test.shape, y_test.shape],
+        ],
+        headers=["Examples", "Labels"],
+    )
+)
+
 """
 ## Augmentations
 Self-supervised networks require at least two augmented "views" of each example. This can be created using a DataSet and an augmentation function. The DataSet treats each example in the batch as its own class and then the augment function produces two separate views for each example.
@@ -123,12 +146,3 @@ TensorFlow Similarity provides several random augmentation functions, and here w
 Now that we have all of our datasets produced, we can move on to constructing the actual
 models.  First, lets define some hyper-parameters that are typical for SimSiam:
 """
-BATCH_SIZE = 512
-PRE_TRAIN_EPOCHS = 800
-PRE_TRAIN_STEPS_PER_EPOCH = len(x_train) // BATCH_SIZE
-VAL_STEPS_PER_EPOCH = 20
-WEIGHT_DECAY = 5e-4
-INIT_LR = 3e-2 * int(BATCH_SIZE / 256)
-WARMUP_LR = 0.0
-WARMUP_STEPS = 0
-DIM = 2048
