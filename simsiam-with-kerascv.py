@@ -257,7 +257,7 @@ For this task, we will use a KerasCV ResNet18 model as the backbone.
 def get_backbone(input_shape):
     inputs = layers.Input(shape=input_shape)
     x = inputs
-    x = keras_cv.models.ResNet18(
+    x = keras_cv.models.EfficientNetB0(
         input_shape=input_shape,
         include_rescaling=True,
         include_top=False,
