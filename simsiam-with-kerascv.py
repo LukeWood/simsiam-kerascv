@@ -139,7 +139,7 @@ PRE_TRAIN_STEPS_PER_EPOCH = len(x_train) // BATCH_SIZE
 print(
     tabulate(
         [
-            ["train", x_train.shape, y_train.shape],
+            ["train", tf.data.experimental.cardinality(train_ds), None],
             ["val", x_val.shape, y_val.shape],
             ["query", x_query.shape, y_query.shape],
             ["index", x_index.shape, y_index.shape],
@@ -148,6 +148,7 @@ print(
         headers=["Examples", "Labels"],
     )
 )
+os.exit()
 
 """
 ## Augmentations
