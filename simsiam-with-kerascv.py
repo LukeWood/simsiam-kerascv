@@ -66,7 +66,7 @@ tfsim.utils.tf_cap_memory()  # Avoid GPU memory blow up
 tfds.disable_progress_bar()
 
 BATCH_SIZE = 512
-PRE_TRAIN_EPOCHS = 800
+PRE_TRAIN_EPOCHS = 50
 VAL_STEPS_PER_EPOCH = 20
 WEIGHT_DECAY = 5e-4
 INIT_LR = 3e-2 * int(BATCH_SIZE / 256)
@@ -134,7 +134,7 @@ x_index, y_index = create_split(index_idxs)
 x_val, y_val = create_split(val_idxs)
 x_train, y_train = create_split(train_idxs)
 
-PRE_TRAIN_STEPS_PER_EPOCH = len(x_train) // BATCH_SIZE
+PRE_TRAIN_STEPS_PER_EPOCH = tf.data.experimental.cardinality(train_ds) // BATCH_SIZE
 
 print(
     tabulate(
@@ -148,7 +148,6 @@ print(
         headers=["Examples", "Labels"],
     )
 )
-os.exit()
 
 """
 ## Augmentations
