@@ -39,6 +39,7 @@ contrastive learning; allowing for unprecedented scores on CIFAR-100 and other d
 To get started, we will sort out some imports.
 """
 import resource
+
 low, high = resource.getrlimit(resource.RLIMIT_NOFILE)
 resource.setrlimit(resource.RLIMIT_NOFILE, (high, high))
 
@@ -251,6 +252,7 @@ constructing the contrastive learning pipeline.  First, lets produce a backbone.
 For this task, we will use a KerasCV ResNet18 model as the backbone.
 """
 
+
 def get_backbone(input_shape):
     inputs = layers.Input(shape=input_shape)
     x = inputs
@@ -261,6 +263,7 @@ def get_backbone(input_shape):
     )(x)
     x = layers.GlobalAveragePooling2D(name="avg_pool")(x)
     return tfsim.models.SimilarityModel(inputs, x, name="resnet18sim")
+
 
 backbone = get_backbone((96, 96, 3))
 backbone.summary()
@@ -280,6 +283,7 @@ lookups and matching classification metrics. However, when using the pre-train
 model for downstream tasks, only the `ContrastiveModel.backbone` is used.
 """
 
+
 def get_projector(input_dim, dim, activation="relu", num_layers: int = 3):
     inputs = tf.keras.layers.Input((input_dim,), name="projector_input")
     x = inputs
@@ -291,8 +295,12 @@ def get_projector(input_dim, dim, activation="relu", num_layers: int = 3):
             kernel_initializer=tf.keras.initializers.LecunUniform(),
             name=f"projector_layer_{i}",
         )(x)
-        x = tf.keras.layers.BatchNormalization(epsilon=1.001e-5, name=f"batch_normalization_{i}")(x)
-        x = tf.keras.layers.Activation(activation, name=f"{activation}_activation_{i}")(x)
+        x = tf.keras.layers.BatchNormalization(
+            epsilon=1.001e-5, name=f"batch_normalization_{i}"
+        )(x)
+        x = tf.keras.layers.Activation(activation, name=f"{activation}_activation_{i}")(
+            x
+        )
     x = tf.keras.layers.Dense(
         dim,
         use_bias=False,
@@ -322,6 +330,7 @@ Finally, we must construct the predictor.  The predictor is used in SimSiam, and
 simple stack of two MLP layers, containing a bottleneck in the hidden layer.
 """
 
+
 def get_predictor(input_dim, hidden_dim=512, activation="relu"):
     inputs = tf.keras.layers.Input(shape=(input_dim,), name="predictor_input")
     x = inputs
@@ -332,7 +341,9 @@ def get_predictor(input_dim, hidden_dim=512, activation="relu"):
         kernel_initializer=tf.keras.initializers.LecunUniform(),
         name="predictor_layer_0",
     )(x)
-    x = tf.keras.layers.BatchNormalization(epsilon=1.001e-5, name="batch_normalization_0")(x)
+    x = tf.keras.layers.BatchNormalization(
+        epsilon=1.001e-5, name="batch_normalization_0"
+    )(x)
     x = tf.keras.layers.Activation(activation, name=f"{activation}_activation_0")(x)
 
     x = tf.keras.layers.Dense(
@@ -357,14 +368,14 @@ predictor.summary()
 
 First, we need to initialize our training model, loss, and optimizer.
 """
-loss = tfsim.losses.SimSiamLoss(projection_type="cosine_distance", name='simsiam')
+loss = tfsim.losses.SimSiamLoss(projection_type="cosine_distance", name="simsiam")
 
 contrastive_model = tfsim.models.ContrastiveModel(
     backbone=backbone,
     projector=projector,
     predictor=predictor,  # NOTE: simiam requires predictor model.
-    algorithm=ALGORITHM,
-    name=ALGORITHM,
+    algorithm="simsiam",
+    name="simsiam",
 )
 lr_decayed_fn = tf.keras.optimizers.schedules.CosineDecay(
     initial_learning_rate=INIT_LR,
@@ -374,7 +385,9 @@ wd_decayed_fn = tf.keras.optimizers.schedules.CosineDecay(
     initial_learning_rate=WEIGHT_DECAY,
     decay_steps=PRE_TRAIN_EPOCHS * PRE_TRAIN_STEPS_PER_EPOCH,
 )
-optimizer = tfa.optimizers.SGDW(learning_rate=lr_decayed_fn, weight_decay=wd_decayed_fn, momentum=0.9)
+optimizer = tfa.optimizers.SGDW(
+    learning_rate=lr_decayed_fn, weight_decay=wd_decayed_fn, momentum=0.9
+)
 
 """
 Next we can compile the model the same way you compile any other Keras model.
@@ -397,13 +410,13 @@ chkpt_dir = DATA_PATH / "models" / "checkpoints" / f"{loss.name}_{time.time()}"
 
 callbacks = [
     tfsim.callbacks.EvalCallback(
-    img_scaling(tf.cast(x_query, tf.float32)),
-    y_query,
-    img_scaling(tf.cast(x_index, tf.float32)),
-    y_index,
-    metrics=["binary_accuracy"],
-    k=1,
-    tb_logdir=log_dir,
+        img_scaling(tf.cast(x_query, tf.float32)),
+        y_query,
+        img_scaling(tf.cast(x_index, tf.float32)),
+        y_index,
+        metrics=["binary_accuracy"],
+        k=1,
+        tb_logdir=log_dir,
     ),
     tf.keras.callbacks.TensorBoard(
         log_dir=log_dir,
@@ -416,7 +429,7 @@ callbacks = [
         mode="min",
         save_best_only=True,
         save_weights_only=True,
-    )
+    ),
 ]
 
 """
@@ -467,21 +480,23 @@ TODO
 
 eval_augmenter = keras_cv.layers.Augmenter(
     [
-        keras_cv.layers.RandomCropAndResize(
-            (96, 96), crop_area_factor=(0.2, 1.0)
-        ),
-        keras_cv.layers.RandomFlip(mode='horizontal')
+        keras_cv.layers.RandomCropAndResize((96, 96), crop_area_factor=(0.2, 1.0)),
+        keras_cv.layers.RandomFlip(mode="horizontal"),
     ]
 )
 
-eval_train_ds = tf.data.Dataset.from_tensor_slices((x_raw_train, tf.keras.utils.to_categorical(y_raw_train, 10)))
+eval_train_ds = tf.data.Dataset.from_tensor_slices(
+    (x_raw_train, tf.keras.utils.to_categorical(y_raw_train, 10))
+)
 eval_train_ds = eval_train_ds.repeat()
 eval_train_ds = eval_train_ds.shuffle(1024)
 eval_train_ds = eval_train_ds.map(lambda x, y: (eval_augmenter(x), y), tf.data.AUTOTUNE)
 eval_train_ds = eval_train_ds.batch(BATCH_SIZE)
 eval_train_ds = eval_train_ds.prefetch(tf.data.AUTOTUNE)
 
-eval_val_ds = tf.data.Dataset.from_tensor_slices((x_test, tf.keras.utils.to_categorical(y_test, 10)))
+eval_val_ds = tf.data.Dataset.from_tensor_slices(
+    (x_test, tf.keras.utils.to_categorical(y_test, 10))
+)
 eval_val_ds = eval_val_ds.repeat()
 eval_val_ds = eval_val_ds.shuffle(1024)
 eval_val_ds = eval_val_ds.batch(BATCH_SIZE)
@@ -490,13 +505,17 @@ eval_val_ds = eval_val_ds.prefetch(tf.data.AUTOTUNE)
 """
 ## Benchmark Against a Naive Model
 """
+
+
 def get_eval_model(img_size, backbone, total_steps, trainable=True, lr=1.8):
     backbone.trainable = trainable
     inputs = tf.keras.layers.Input((img_size, img_size, 3), name="eval_input")
     x = backbone(inputs, training=trainable)
     o = tf.keras.layers.Dense(10, activation="softmax")(x)
     model = tf.keras.Model(inputs, o)
-    cosine_decayed_lr = tf.keras.experimental.CosineDecay(initial_learning_rate=lr, decay_steps=total_steps)
+    cosine_decayed_lr = tf.keras.experimental.CosineDecay(
+        initial_learning_rate=lr, decay_steps=total_steps
+    )
     opt = tf.keras.optimizers.SGD(cosine_decayed_lr, momentum=0.9)
     model.compile(optimizer=opt, loss="categorical_crossentropy", metrics=["acc"])
     return model
