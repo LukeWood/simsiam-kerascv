@@ -38,6 +38,10 @@ contrastive learning; allowing for unprecedented scores on CIFAR-100 and other d
 
 To get started, we will sort out some imports.
 """
+import resource
+low, high = resource.getrlimit(resource.RLIMIT_NOFILE)
+resource.setrlimit(resource.RLIMIT_NOFILE, (high, high))
+
 
 import gc
 import os
@@ -45,9 +49,10 @@ import random
 import time
 import keras_cv
 from pathlib import Path
-
+from tensorflow_similarity.layers import GeneralizedMeanPooling2D, MetricEmbedding
 import matplotlib.pyplot as plt
 import numpy as np
+from tensorflow.keras import layers
 from tabulate import tabulate
 import tensorflow_similarity as tfsim  # main package
 import tensorflow as tf
@@ -173,7 +178,7 @@ hue_factor = 0.2
 augmenter = keras_cv.layers.Augmenter(
     [
         cv_layers.RandomFlip("horizontal"),
-        cv_layers.RandomResizedCrop(
+        cv_layers.RandomCropAndResize(
             target_size,
             crop_area_factor=crop_area_factor,
             aspect_ratio_factor=aspect_ratio_factor,
@@ -227,7 +232,6 @@ print("val_ds", val_ds)
 Lets visualize our pairs using the `tfsim.visualization` utility package.
 """
 display_imgs = next(train_ds.as_numpy_iterator())
-print(display_imgs[0].shape)
 max_pixel = np.max([display_imgs[0].max(), display_imgs[1].max()])
 min_pixel = np.min([display_imgs[0].min(), display_imgs[1].min()])
 
@@ -239,3 +243,224 @@ tfsim.visualization.visualize_views(
     min_pixel_value=min_pixel,
 )
 
+"""
+## Model Creation
+
+Now that our data and augmentation pipeline is setup, we can move on to
+constructing the contrastive learning pipeline.  First, lets produce a backbone.
+For this task, we will use a KerasCV ResNet18 model as the backbone.
+"""
+
+def get_backbone(input_shape):
+    inputs = layers.Input(shape=input_shape)
+    x = inputs
+    x = keras_cv.models.ResNet18(
+        input_shape=input_shape,
+        include_rescaling=True,
+        include_top=False,
+    )(x)
+    x = layers.GlobalAveragePooling2D(name="avg_pool")(x)
+    return tfsim.models.SimilarityModel(inputs, x, name="resnet18sim")
+
+backbone = get_backbone((96, 96, 3))
+backbone.summary()
+
+"""
+This MLP is common to all the self-supervised models and is typically a stack of 3
+layers of the same size. However, SimSiam only uses 2 layers for the smaller CIFAR
+images. Having too much capacity in the models can make it difficult for the loss to
+stabilize and converge.
+
+Additionally, the SimSiam paper found that disabling the center and scale parameters
+can lead to a small boost in the final loss.
+
+NOTE This is the model output that is returned by `ContrastiveModel.predict()` and
+represents the distance based embedding. This embedding can be used for the KNN
+lookups and matching classification metrics. However, when using the pre-train
+model for downstream tasks, only the `ContrastiveModel.backbone` is used.
+"""
+
+def get_projector(input_dim, dim, activation="relu", num_layers: int = 3):
+    inputs = tf.keras.layers.Input((input_dim,), name="projector_input")
+    x = inputs
+
+    for i in range(num_layers - 1):
+        x = tf.keras.layers.Dense(
+            dim,
+            use_bias=False,
+            kernel_initializer=tf.keras.initializers.LecunUniform(),
+            name=f"projector_layer_{i}",
+        )(x)
+        x = tf.keras.layers.BatchNormalization(epsilon=1.001e-5, name=f"batch_normalization_{i}")(x)
+        x = tf.keras.layers.Activation(activation, name=f"{activation}_activation_{i}")(x)
+    x = tf.keras.layers.Dense(
+        dim,
+        use_bias=False,
+        kernel_initializer=tf.keras.initializers.LecunUniform(),
+        name="projector_output",
+    )(x)
+    x = tf.keras.layers.BatchNormalization(
+        epsilon=1.001e-5,
+        center=False,  # Page:5, Paragraph:2 of SimSiam paper
+        scale=False,  # Page:5, Paragraph:2 of SimSiam paper
+        name=f"batch_normalization_ouput",
+    )(x)
+    # Metric Logging layer. Monitors the std of the layer activations.
+    # Degnerate solutions colapse to 0 while valid solutions will move
+    # towards something like 0.0220. The actual number will depend on the layer size.
+    o = tfsim.layers.ActivationStdLoggingLayer(name="proj_std")(x)
+    projector = tf.keras.Model(inputs, o, name="projector")
+    return projector
+
+
+projector = get_projector(input_dim=backbone.output.shape[-1], dim=DIM, num_layers=2)
+projector.summary()
+
+
+"""
+Finally, we must construct the predictor.  The predictor is used in SimSiam, and is a
+simple stack of two MLP layers, containing a bottleneck in the hidden layer.
+"""
+
+def get_predictor(input_dim, hidden_dim=512, activation="relu"):
+    inputs = tf.keras.layers.Input(shape=(input_dim,), name="predictor_input")
+    x = inputs
+
+    x = tf.keras.layers.Dense(
+        hidden_dim,
+        use_bias=False,
+        kernel_initializer=tf.keras.initializers.LecunUniform(),
+        name="predictor_layer_0",
+    )(x)
+    x = tf.keras.layers.BatchNormalization(epsilon=1.001e-5, name="batch_normalization_0")(x)
+    x = tf.keras.layers.Activation(activation, name=f"{activation}_activation_0")(x)
+
+    x = tf.keras.layers.Dense(
+        input_dim,
+        kernel_initializer=tf.keras.initializers.LecunUniform(),
+        name="predictor_output",
+    )(x)
+    # Metric Logging layer. Monitors the std of the layer activations.
+    # Degnerate solutions colapse to 0 while valid solutions will move
+    # towards something like 0.0220. The actual number will depend on the layer size.
+    o = tfsim.layers.ActivationStdLoggingLayer(name="pred_std")(x)
+    predictor = tf.keras.Model(inputs, o, name="predictor")
+    return predictor
+
+
+predictor = get_predictor(input_dim=DIM, hidden_dim=512)
+predictor.summary()
+
+
+"""
+## Training
+
+First, we need to initialize our training model, loss, and optimizer.
+"""
+loss = tfsim.losses.SimSiamLoss(projection_type="cosine_distance", name='simsiam')
+
+contrastive_model = tfsim.models.ContrastiveModel(
+    backbone=backbone,
+    projector=projector,
+    predictor=predictor,  # NOTE: simiam requires predictor model.
+    algorithm=ALGORITHM,
+    name=ALGORITHM,
+)
+lr_decayed_fn = tf.keras.optimizers.schedules.CosineDecay(
+    initial_learning_rate=INIT_LR,
+    decay_steps=PRE_TRAIN_EPOCHS * PRE_TRAIN_STEPS_PER_EPOCH,
+)
+wd_decayed_fn = tf.keras.optimizers.schedules.CosineDecay(
+    initial_learning_rate=WEIGHT_DECAY,
+    decay_steps=PRE_TRAIN_EPOCHS * PRE_TRAIN_STEPS_PER_EPOCH,
+)
+optimizer = tfa.optimizers.SGDW(learning_rate=lr_decayed_fn, weight_decay=wd_decayed_fn, momentum=0.9)
+
+"""
+Next we can compile the model the same way you compile any other Keras model.
+"""
+
+contrastive_model.compile(
+    optimizer=optimizer,
+    loss=loss,
+)
+
+"""
+We track the training using several callbacks.
+
+* **EvalCallback** creates an index at the end of each epoch and provides a proxy for the nearest neighbor matching classification using `binary_accuracy`.
+* **TensordBoard** and **ModelCheckpoint** are provided for tracking the training progress.
+"""
+
+log_dir = DATA_PATH / "models" / "logs" / f"{loss.name}_{time.time()}"
+chkpt_dir = DATA_PATH / "models" / "checkpoints" / f"{loss.name}_{time.time()}"
+
+callbacks = [
+    tfsim.callbacks.EvalCallback(
+    img_scaling(tf.cast(x_query, tf.float32)),
+    y_query,
+    img_scaling(tf.cast(x_index, tf.float32)),
+    y_index,
+    metrics=["binary_accuracy"],
+    k=1,
+    tb_logdir=log_dir,
+    ),
+    tf.keras.callbacks.TensorBoard(
+        log_dir=log_dir,
+        histogram_freq=1,
+        update_freq=100,
+    ),
+    tf.keras.callbacks.ModelCheckpoint(
+        filepath=chkpt_dir,
+        monitor="val_loss",
+        mode="min",
+        save_best_only=True,
+        save_weights_only=True,
+    )
+]
+
+"""
+All that is left to do is run fit()!
+"""
+
+history = contrastive_model.fit(
+    train_ds,
+    epochs=PRE_TRAIN_EPOCHS,
+    steps_per_epoch=PRE_TRAIN_STEPS_PER_EPOCH,
+    validation_data=val_ds,
+    validation_steps=VAL_STEPS_PER_EPOCH,
+    callbacks=[evb, tbc, mcp],
+)
+
+
+"""
+## Plotting and Evaluation
+"""
+
+plt.figure(figsize=(15, 4))
+plt.subplot(1, 3, 1)
+plt.plot(history.history["loss"])
+plt.grid()
+plt.title(f"{loss.name} - loss")
+
+plt.subplot(1, 3, 2)
+plt.plot(history.history["proj_std"], label="proj")
+if "pred_std" in history.history:
+    plt.plot(history.history["pred_std"], label="pred")
+plt.grid()
+plt.title(f"{loss.name} - std metrics")
+plt.legend()
+
+plt.subplot(1, 3, 3)
+plt.plot(history.history["binary_accuracy"], label="acc")
+plt.grid()
+plt.title(f"{loss.name} - match metrics")
+plt.legend()
+
+plt.show()
+
+
+"""
+## Fine Tuning on the Labelled Data
+TODO
+"""
