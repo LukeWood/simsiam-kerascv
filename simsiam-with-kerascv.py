@@ -536,7 +536,7 @@ def get_eval_model(img_size, backbone, total_steps, trainable=True, lr=1.8):
 
 
 no_pt_eval_model = get_eval_model(
-    img_size=CIFAR_IMG_SIZE,
+    img_size=96,
     backbone=get_backbone(CIFAR_IMG_SIZE, DIM),
     total_steps=TEST_EPOCHS * TEST_STEPS_PER_EPOCH,
     trainable=True,
@@ -551,6 +551,18 @@ no_pt_history = no_pt_eval_model.fit(
     validation_steps=VAL_STEPS_PER_EPOCH,
 )
 
+"""
+Pretty bad results!
+"""
+
+pt_eval_model = get_eval_model(
+    img_size=96,
+    backbone=contrastive_model.backbone,
+    total_steps=TEST_EPOCHS * TEST_STEPS_PER_EPOCH,
+    trainable=False,
+    lr=30.0,
+)
+pt_eval_model.summary()
 pt_history = pt_eval_model.fit(
     eval_train_ds,
     batch_size=BATCH_SIZE,
@@ -559,11 +571,7 @@ pt_history = pt_eval_model.fit(
     validation_data=eval_val_ds,
     validation_steps=VAL_STEPS_PER_EPOCH,
 )
-pt_eval_model = get_eval_model(
-    img_size=CIFAR_IMG_SIZE,
-    backbone=contrastive_model.backbone,
-    total_steps=TEST_EPOCHS * TEST_STEPS_PER_EPOCH,
-    trainable=False,
-    lr=30.0,
-)
-pt_eval_model.summary()
+
+"""
+Far superior results!
+"""
