@@ -464,3 +464,73 @@ plt.show()
 ## Fine Tuning on the Labelled Data
 TODO
 """
+
+eval_augmenter = keras_cv.layers.Augmenter(
+    [
+        keras_cv.layers.RandomCropAndResize(
+            (96, 96), crop_area_factor=(0.2, 1.0)
+        ),
+        keras_cv.layers.RandomFlip(mode='horizontal')
+    ]
+)
+
+eval_train_ds = tf.data.Dataset.from_tensor_slices((x_raw_train, tf.keras.utils.to_categorical(y_raw_train, 10)))
+eval_train_ds = eval_train_ds.repeat()
+eval_train_ds = eval_train_ds.shuffle(1024)
+eval_train_ds = eval_train_ds.map(lambda x, y: (eval_augmenter(x), y), tf.data.AUTOTUNE)
+eval_train_ds = eval_train_ds.batch(BATCH_SIZE)
+eval_train_ds = eval_train_ds.prefetch(tf.data.AUTOTUNE)
+
+eval_val_ds = tf.data.Dataset.from_tensor_slices((x_test, tf.keras.utils.to_categorical(y_test, 10)))
+eval_val_ds = eval_val_ds.repeat()
+eval_val_ds = eval_val_ds.shuffle(1024)
+eval_val_ds = eval_val_ds.batch(BATCH_SIZE)
+eval_val_ds = eval_val_ds.prefetch(tf.data.AUTOTUNE)
+
+"""
+## Benchmark Against a Naive Model
+"""
+def get_eval_model(img_size, backbone, total_steps, trainable=True, lr=1.8):
+    backbone.trainable = trainable
+    inputs = tf.keras.layers.Input((img_size, img_size, 3), name="eval_input")
+    x = backbone(inputs, training=trainable)
+    o = tf.keras.layers.Dense(10, activation="softmax")(x)
+    model = tf.keras.Model(inputs, o)
+    cosine_decayed_lr = tf.keras.experimental.CosineDecay(initial_learning_rate=lr, decay_steps=total_steps)
+    opt = tf.keras.optimizers.SGD(cosine_decayed_lr, momentum=0.9)
+    model.compile(optimizer=opt, loss="categorical_crossentropy", metrics=["acc"])
+    return model
+
+
+no_pt_eval_model = get_eval_model(
+    img_size=CIFAR_IMG_SIZE,
+    backbone=get_backbone(CIFAR_IMG_SIZE, DIM),
+    total_steps=TEST_EPOCHS * TEST_STEPS_PER_EPOCH,
+    trainable=True,
+    lr=1e-3,
+)
+no_pt_history = no_pt_eval_model.fit(
+    eval_train_ds,
+    batch_size=BATCH_SIZE,
+    epochs=TEST_EPOCHS,
+    steps_per_epoch=TEST_STEPS_PER_EPOCH,
+    validation_data=eval_val_ds,
+    validation_steps=VAL_STEPS_PER_EPOCH,
+)
+
+pt_history = pt_eval_model.fit(
+    eval_train_ds,
+    batch_size=BATCH_SIZE,
+    epochs=TEST_EPOCHS,
+    steps_per_epoch=TEST_STEPS_PER_EPOCH,
+    validation_data=eval_val_ds,
+    validation_steps=VAL_STEPS_PER_EPOCH,
+)
+pt_eval_model = get_eval_model(
+    img_size=CIFAR_IMG_SIZE,
+    backbone=contrastive_model.backbone,
+    total_steps=TEST_EPOCHS * TEST_STEPS_PER_EPOCH,
+    trainable=False,
+    lr=30.0,
+)
+pt_eval_model.summary()
