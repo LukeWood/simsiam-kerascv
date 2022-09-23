@@ -87,6 +87,9 @@ train_ds = tfds.load("stl10", split="unlabelled")
 train_ds = train_ds.map(
     lambda entry: entry["image"], num_parallel_calls=tf.data.AUTOTUNE
 )
+train_ds = train_ds.map(
+    lambda image: tf.cast(image, tf.float32), num_parallel_calls=tf.data.AUTOTUNE
+)
 train_ds = train_ds.shuffle(buffer_size=8 * BATCH_SIZE, reshuffle_each_iteration=True)
 
 """
@@ -98,12 +101,16 @@ that the model is learning appropriately.
 (x_raw_train, y_raw_train), ds_info = tfds.load(
     "stl10", split="train", as_supervised=True, batch_size=-1, with_info=True
 )
+x_raw_train, y_raw_train = tf.cast(x_raw_train, tf.float32), tf.cast(
+    y_raw_train, tf.float32
+)
 x_test, y_test = tfds.load(
     "stl10",
     split="test",
     as_supervised=True,
     batch_size=-1,
 )
+x_test, y_test = tf.cast(x_test, tf.float32), tf.cast(y_test, tf.float32)
 
 # Compute the indicies for query, index, val, and train splits
 query_idxs, index_idxs, val_idxs, train_idxs = [], [], [], []
@@ -257,13 +264,13 @@ For this task, we will use a KerasCV ResNet18 model as the backbone.
 def get_backbone(input_shape):
     inputs = layers.Input(shape=input_shape)
     x = inputs
-    x = keras_cv.models.ResNet50V2(
+    x = keras_cv.models.ResNet18(
         input_shape=input_shape,
         include_rescaling=True,
         include_top=False,
     )(x)
     x = layers.GlobalAveragePooling2D(name="avg_pool")(x)
-    return tfsim.models.SimilarityModel(inputs, x, name="resnet18sim")
+    return tfsim.models.SimilarityModel(inputs, x)
 
 
 backbone = get_backbone((96, 96, 3))
