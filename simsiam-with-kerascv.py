@@ -48,6 +48,7 @@ import gc
 import os
 import random
 import time
+import tensorflow_addons as tfa
 import keras_cv
 from pathlib import Path
 from tensorflow_similarity.layers import GeneralizedMeanPooling2D, MetricEmbedding
@@ -405,14 +406,15 @@ We track the training using several callbacks.
 * **TensordBoard** and **ModelCheckpoint** are provided for tracking the training progress.
 """
 
+DATA_PATH = Path("./")
 log_dir = DATA_PATH / "models" / "logs" / f"{loss.name}_{time.time()}"
 chkpt_dir = DATA_PATH / "models" / "checkpoints" / f"{loss.name}_{time.time()}"
 
 callbacks = [
     tfsim.callbacks.EvalCallback(
-        img_scaling(tf.cast(x_query, tf.float32)),
+        tf.cast(x_query, tf.float32),
         y_query,
-        img_scaling(tf.cast(x_index, tf.float32)),
+        tf.cast(x_index, tf.float32),
         y_index,
         metrics=["binary_accuracy"],
         k=1,
@@ -442,7 +444,7 @@ history = contrastive_model.fit(
     steps_per_epoch=PRE_TRAIN_STEPS_PER_EPOCH,
     validation_data=val_ds,
     validation_steps=VAL_STEPS_PER_EPOCH,
-    callbacks=[evb, tbc, mcp],
+    callbacks=callbacks,
 )
 
 
