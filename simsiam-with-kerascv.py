@@ -133,7 +133,9 @@ def create_split(idxs: list) -> tuple:
     for idx in idxs:
         x.append(x_raw_train[int(idx)])
         y.append(y_raw_train[int(idx)])
-    return tf.convert_to_tensor(np.array(x)), tf.convert_to_tensor(np.array(y))
+    return tf.convert_to_tensor(np.array(x), dtype=tf.float32), tf.convert_to_tensor(
+        np.array(y), dtype=tf.int64
+    )
 
 
 x_query, y_query = create_split(query_idxs)
@@ -142,6 +144,7 @@ x_val, y_val = create_split(val_idxs)
 x_train, y_train = create_split(train_idxs)
 
 PRE_TRAIN_STEPS_PER_EPOCH = tf.data.experimental.cardinality(train_ds) // BATCH_SIZE
+PRE_TRAIN_STEPS_PER_EPOCH = int(PRE_TRAIN_STEPS_PER_EPOCH.numpy())
 
 print(
     tabulate(
@@ -445,6 +448,8 @@ callbacks = [
 All that is left to do is run fit()!
 """
 
+print(train_ds)
+print(val_ds)
 history = contrastive_model.fit(
     train_ds,
     epochs=PRE_TRAIN_EPOCHS,
