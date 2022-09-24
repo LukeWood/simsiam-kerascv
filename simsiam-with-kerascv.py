@@ -494,7 +494,9 @@ TODO
 
 eval_augmenter = keras_cv.layers.Augmenter(
     [
-        keras_cv.layers.RandomCropAndResize((96, 96), crop_area_factor=(0.2, 1.0)),
+        keras_cv.layers.RandomCropAndResize(
+            (96, 96), crop_area_factor=(0.2, 1.0), aspect_ratio_factor=(1.0, 1.0)
+        ),
         keras_cv.layers.RandomFlip(mode="horizontal"),
     ]
 )
