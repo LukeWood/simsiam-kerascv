@@ -539,7 +539,7 @@ def get_eval_model(img_size, backbone, total_steps, trainable=True, lr=1.8):
 
 no_pt_eval_model = get_eval_model(
     img_size=96,
-    backbone=get_backbone(CIFAR_IMG_SIZE, DIM),
+    backbone=get_backbone(96, DIM),
     total_steps=TEST_EPOCHS * TEST_STEPS_PER_EPOCH,
     trainable=True,
     lr=1e-3,
