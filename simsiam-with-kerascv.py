@@ -522,6 +522,9 @@ eval_val_ds = eval_val_ds.prefetch(tf.data.AUTOTUNE)
 ## Benchmark Against a Naive Model
 """
 
+TEST_EPOCHS = 50
+TEST_STEPS_PER_EPOCH = x_raw_train.shape[0] // BATCH_SIZE
+
 
 def get_eval_model(img_size, backbone, total_steps, trainable=True, lr=1.8):
     backbone.trainable = trainable
