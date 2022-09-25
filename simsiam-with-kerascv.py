@@ -557,7 +557,7 @@ no_pt_history = no_pt_eval_model.fit(
 )
 
 """
-Pretty bad results!
+Pretty bad results!  Lets try fine-tuning our SimSiam pretrained model:
 """
 
 pt_eval_model = get_eval_model(
@@ -578,5 +578,26 @@ pt_history = pt_eval_model.fit(
 )
 
 """
-Far superior results!
+All that is left to do is evaluate the models:
 """
+print("no pretrain", no_pt_eval_model.evaluate(eval_test_ds))
+print("pretrained", pt_eval_model.evaluate(eval_test_ds))
+"""
+Awesome!  Our pretrained model stomped the non-pretrained model.
+71% accuracy is quite good for a ResNet18 on the STL-10 dataset.
+For better results, try using an EfficientNetV2B0 instead.
+Unfortunately, this will require a higher end graphics card as
+SimSiam has a minimum batch size of 512.
+
+## Conclusion
+
+TensorFlow similarity can be used to easily train KerasCV models using
+contrastive algorithms such as SimCLR, SimSiam and BarlowTwins.
+This allows you to leverage large corpuses of unlabelled data in your
+model trainining pipeline.
+
+Some follow-up exercises to this tutorial:
+
+- Train an EfficientNetV2B0 on STL-10
+- Experiment with other data augmentation techniques in pretraining
+- Train a model using the BarlowTwins implementation in TensorFlow similarity
